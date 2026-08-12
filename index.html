@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Meeting rooms</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
+  label { display: block; margin: .6rem 0; }
+  input, select { width: 100%; padding: .4rem; font: inherit; box-sizing: border-box; }
+  button { margin-top: .8rem; padding: .5rem 1rem; font: inherit; }
+  .err { color: #b00; } .ok { color: #070; }
+  li { margin: .3rem 0; }
+</style>
+
+<h1>Book a meeting room</h1>
+<form id="form">
+  <label>Start <input type="datetime-local" id="start" required></label>
+  <label>End <input type="datetime-local" id="end" required></label>
+  <label>Attendees <input type="number" id="attendees" min="1" max="12" value="2" required></label>
+  <label>Room <select id="room" required></select></label>
+  <label>Your name <input id="name" maxlength="60" required></label>
+  <button>Book</button>
+</form>
+<p id="msg"></p>
+
+<h2>Bookings</h2>
+<ul id="list"></ul>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const option = (text, value = "") => `<option value="${esc(value)}">${esc(text)}</option>`;
+
+// Time and group size first; the room list is whatever still fits.
+let latest = 0;
+async function showRooms() {
+  const ticket = ++latest;
+  const query = new URLSearchParams({ start: $('start').value, end: $('end').value, attendees: $('attendees').value });
+  const response = await fetch('/api/rooms?' + query);
+  const data = await response.json();
+  if (ticket !== latest) return;  // a newer request is in flight, ignore this reply
+  $('room').innerHTML = !response.ok ? option(data.error)
+    : data.rooms.length ? data.rooms.map(r => option(r, r)).join('')
+    : option('No room is free and big enough');
+}
+
+async function showBookings() {
+  const list = await (await fetch('/api/bookings')).json();
+  const when = t => esc(t.slice(0, 16).replace('T', ' '));  // drop the seconds
+  $('list').innerHTML = list.map(b => `<li><b>${esc(b.room)}</b> ${when(b.start)}
+    &rarr; ${when(b.end)} &middot; ${esc(b.attendees)} people &middot; ${esc(b.name)}</li>`)
+    .join('') || '<li>None yet</li>';
+}
+
+$('form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const body = { name: $('name').value, room: $('room').value, start: $('start').value,
+                 end: $('end').value, attendees: $('attendees').value };
+  const response = await fetch('/api/bookings', { method: 'POST', body: JSON.stringify(body) });
+  const data = await response.json();
+  $('msg').textContent = response.ok ? `Booked ${data.room} for ${data.name}` : data.error;
+  $('msg').className = response.ok ? 'ok' : 'err';
+  if (response.ok) { showBookings(); showRooms(); }
+});
+
+['start', 'end', 'attendees'].forEach(id => $(id).addEventListener('change', showRooms));
+showRooms(); showBookings();
+</script>
